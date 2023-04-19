@@ -1,0 +1,18 @@
+CREATE TABLE `customer` (
+	`id` INT(11) NOT NULL AUTO_INCREMENT,
+	`file_id` INT(11) NULL DEFAULT NULL,
+	`category` VARCHAR(100) NULL DEFAULT NULL COLLATE 'utf8mb4_general_ci',
+	`firstname` VARCHAR(100) NULL DEFAULT NULL COLLATE 'utf8mb4_general_ci',
+	`lastname` VARCHAR(100) NULL DEFAULT NULL COLLATE 'utf8mb4_general_ci',
+	`email` VARCHAR(100) NULL DEFAULT NULL COLLATE 'utf8mb4_general_ci',
+	`gender` ENUM('female','male') NULL DEFAULT NULL COLLATE 'utf8mb4_general_ci',
+	`birthDate` DATE NULL DEFAULT NULL,
+	`created_at` TIMESTAMP NULL DEFAULT NULL,
+	`updated_at` TIMESTAMP NULL DEFAULT NULL,
+	PRIMARY KEY (`id`) USING BTREE
+)
+COLLATE='utf8mb4_general_ci'
+ENGINE=InnoDB
+AUTO_INCREMENT=15776
+/*!50100 PARTITION BY HASH (`id`)
+PARTITIONS 100 */;
