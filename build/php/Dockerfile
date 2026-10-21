@@ -1,4 +1,4 @@
-# The application image of task_unilimes.
+# The application image of csv-import-api.
 #
 # The base image is pinned by digest: the tag would let the runtime drift
 # away from the version the code was written for. The application source is

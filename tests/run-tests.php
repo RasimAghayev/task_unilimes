@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * The test suite of task_unilimes.
+ * The test suite of csv-import-api.
  *
  * The suite runs on the PHP test runner of the project itself: no framework
  * and no third party library. Every test states what it checks, and the
