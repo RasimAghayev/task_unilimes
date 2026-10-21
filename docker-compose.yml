@@ -23,7 +23,7 @@ services:
       context: .
       dockerfile: build/php/Dockerfile
       target: runtime
-    container_name: task_unilimes_php
+    container_name: csv-import-api_php
     restart: always
     depends_on:
       mysql:
@@ -58,7 +58,7 @@ services:
     build:
       context: .
       dockerfile: build/mysql/Dockerfile
-    container_name: task_unilimes_mysql
+    container_name: csv-import-api_mysql
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}

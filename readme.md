@@ -1,4 +1,4 @@
-# task_unilimes
+# csv-import-api
 
 A take-home PHP test task (see [`Task.md`](Task.md) for the original brief):
 import a CSV of customer records into MySQL, then browse and filter that data

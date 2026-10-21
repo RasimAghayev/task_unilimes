@@ -1,4 +1,4 @@
-# The endpoints of task_unilimes
+# The endpoints of csv-import-api
 
 Every endpoint of the application, with its request, its response and the
 rules that hold for it.
