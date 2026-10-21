@@ -1,110 +1,156 @@
 # task_unilimes
 
 A take-home PHP test task (see [`Task.md`](Task.md) for the original brief):
-import a CSV of customer records into MySQL, then browse/filter that data
-and export it back out as CSV. Delivered as a Docker Compose stack — plain
-procedural PHP (`mysqli`) on the backend, vanilla JS + jQuery + the
-[paginationjs](https://github.com/superRaytin/paginationjs) plugin on the
-frontend, Bootstrap for styling. No framework, no MVC layer — each `.php`
-file in `app/` is a self-contained script handling one route directly; that
-flat script-per-endpoint style is the actual architecture here, not a
-DDD/CQRS/clean-architecture design.
+import a CSV of customer records into MySQL, then browse and filter that data
+and export it back out as CSV.
+
+Plain procedural PHP on the backend (`mysqli`, no framework, no third party
+library), a Bootstrap page with a plain JavaScript refresh, and a MySQL
+database. The architecture is a script per endpoint: `app/index.php` serves
+the page, `app/restData.php` the JSON listing, `app/importData.php` the
+upload and `app/exportData.php` the export. The logic that the endpoints
+share lives in `app/lib/`.
 
 ## Stack
 
-- **PHP 8.2** (`php:8.2-apache`), `mysqli` extension, no Composer/no
-  third-party PHP libraries.
-- **MySQL** (`mysql:latest`), schema + empty table via `build/mysql/dump.sql`.
-- **Frontend:** vanilla JS, jQuery 3.6.4 (CDN), Bootstrap 5.3.0-alpha3 (CDN),
-  paginationjs 2.0.5 (vendored in `app/pagination.js`).
+- **PHP 8.5** (`php:8.5-apache`), `mysqli` extension, no Composer and no
+  third party PHP library.
+- **MySQL 8.4**, schema and empty table via `build/mysql/dump.sql`.
+- **Frontend:** Bootstrap 5.3.0-alpha3 and jQuery 3.6.4 from a CDN. The
+  pagination is written in the page, so the vendored `pagination.js` copy of
+  the jQuery plugin is no longer needed.
 - **Docker Compose** wires the two services together (`php` on `:8000`,
   `mysql` on `:9306`).
 
 ## Running it
 
-Verified end-to-end by actually building and running the stack, not just
-reading the config:
-
-```
+```shell
+mkdir -p var
+cp .env.example var/.env
 docker compose build
 docker compose up -d
 ```
 
-Then open `http://localhost:8000/index.php`. The `mysql`/`user`/`pass`
-credentials in `docker-compose.yml`/`app/db_connection.php` are local to
-this Compose network only (no external service behind them) — not a
-credential-exposure finding, same treatment as this portfolio's other
-Docker-only repos.
+Then open `http://localhost:8000/index.php`.
 
-`build/mysql/dump.sql` only creates the (empty) `customer` table — no seed
-rows are included, so a fresh `docker compose up` starts with an empty
-listing (`AUTO_INCREMENT=15776` is a leftover from wherever this dump was
-originally exported, not real seed data).
+`APP_PORT` in `var/.env` moves the application to another host port. The
+credentials of the database live in `var/.env` and are read by the container
+from the environment, so the same image runs locally and in a deployment
+without a change in the source.
 
-## Task.md requirements vs. what's actually implemented
+Every bind mount of the stack lives under `var/`, so the repository holds no
+state of its own: `var/.env` is the local environment file and `var/mysql` is
+the data of the database. Named volumes are not used.
 
-Checked against the real source and a live run, not assumed from the brief:
+## Endpoints
 
-1. **Public repo** — done (this repo).
-2. **Runs in Docker** — done, verified via a real `docker compose build` +
-   `up` + HTTP request cycle.
-3. **README** — this file (previously 0 bytes).
-4. **CSV dataset** — the brief links a Google Drive CSV; not fetched here
-   (third-party asset, out of scope for this doc pass). The DB schema
-   matches the brief's column list exactly (`category`, `firstname`,
-   `lastname`, `email`, `gender`, `birthDate`), plus `id`/`file_id`/
-   `created_at`/`updated_at`.
-5. **Read CSV without third-party libraries** — done; `app/importData.php`
-   uses PHP's built-in `fgetcsv()`, nothing else.
-6. **Write data to the database** — verified with a real upload: rows
-   land in `customer` via `INSERT`, with email-match rows going through
-   `UPDATE` instead (dedup-by-email upsert).
-7. **Display data with pagination (or a JSON API)** — the JSON API
-   (`app/restData.php`) works and was verified live (filtering, age
-   calculation via `TIMESTAMPDIFF`, category list, min/max age all
-   correct). The server-rendered table in `index.php` is separate and only
-   ever shows the last 10 rows, unfiltered — see the pagination-wiring bug
-   below for why the two don't actually connect in the browser.
-8. **Filters** (category, gender, date of birth, age, age range) — done in
-   `restData.php`: any `$_GET` key matching a real column name becomes a
-   `LIKE '%value%'` clause, and `age=25~35`-style range syntax is handled
-   specially. Verified live with `gender=`, `category=`, and `age=25~35`
-   filters, each returning the correct subset.
-9. **CSV export filtered by the above** — **not implemented**. No
-   export/download endpoint exists anywhere in this codebase.
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/index.php` | The listing. The rows are rendered by the server, so the page works without JavaScript. |
+| GET | `/restData.php` | The JSON listing: the rows, the categories, the age range, the total and the window. |
+| POST | `/importData.php` | The import of a CSV file. The field `importSubmit` has to be part of the request. |
+| GET | `/exportData.php` | The export of the filtered rows as a CSV file. |
 
-## Findings (disclosed, not fixed — documentation-only pass)
+The request and the response of every endpoint are described in
+[`docs/api.md`](docs/api.md).
 
-- **SQL injection, both directions.** Neither `importData.php` nor
-  `restData.php` escapes values or uses prepared statements — every query
-  is raw string concatenation of `$_POST`/CSV-row/`$_GET` data straight
-  into SQL. Verified live and safely (read-only probe, no data damage):
-  `GET /restData.php?firstname=x%25%27%20OR%201=1%20--%20-` returned every
-  row in the table instead of the (empty) set a literal `firstname LIKE
-  '%x%'` match should give — a working, unauthenticated SQLi bypass of the
-  filter logic. `importData.php`'s `htmlspecialchars()` on `firstname`/
-  `lastname` guards against XSS on output; it does nothing for SQL
-  injection on the same fields, and `category`/`email`/`gender`/
-  `birthDate` get no treatment at all.
-- **Pagination widget targets the wrong element.** `index.php`'s inline
-  script does `container.prev().html(dataHtml)` where `container` is
-  `#pagination-table`; that div's previous sibling is the *Import button*
-  container, not the data table — so even though `restData.php` itself
-  returns correct, filtered JSON, the AJAX-rendered rows would render into
-  the wrong part of the page in a real browser, not into the visible
-  table.
-- **Copy-paste leftover in the table footer.** The footer's gender
-  `<select>` still has Bootstrap-example placeholder values
-  (`value="volvo"`/`value="saab"`) instead of `female`/`male` — inherited
-  from whatever snippet this was copied from, never updated to match the
-  matching `<thead>` select right above it.
-- No license file; `.gitignore` is present but empty.
-- One open PR: `renovate/php-8.x` → `php:8.5-apache` (opened 2023-11-27,
-  still unmerged). GitHub's own "last pushed 2025-11-21" banner reflects
-  that branch's most recent force-push, not `master` — `master`'s real
-  last commit (2023-11-03) is the *earlier* Renovate PR (#1, merged,
-  `php:8.2-apache`) landing. Same misleading-push-date pattern as the rest
-  of this portfolio. No Dependabot/vulnerability alerts are reported for
-  this repo, but that's because there's no `composer.json`/lockfile for
-  GitHub's scanners to check against — it doesn't mean the code is clean
-  (see the SQL injection finding above).
+### Filters
+
+Both the listing and the export take the same filters:
+
+| Parameter | Effect |
+|---|---|
+| `id`, `category`, `firstname`, `lastname`, `email`, `gender`, `birthDate`, `created_at` | The value is matched against the column with `LIKE '%value%'`. |
+| `age` | The age of a customer, computed by the database. `age=30` asks for one age, `age=25~35` asks for a range. |
+| `page` | The page of the listing, starting at 1. |
+| `limit` | The number of rows of a page, at most 500. |
+
+A column name that is not on the list above is ignored, and a value is never
+part of a SQL text: it is always a bound parameter.
+
+### Import
+
+The first line of the file names the columns, and the values are read by those
+names, so the order of the columns does not matter:
+
+```csv
+category,firstname,lastname,email,gender,birthDate
+books,Ada,Lovelace,ada@example.com,female,1815-12-10
+```
+
+A row whose email is already known is updated, a new one is inserted. A row
+without an email, with a gender outside `female`/`male` or with a birth date
+that is not `YYYY-MM-DD` is rejected and counted. The number of the imported
+and the rejected rows is shown after the upload.
+
+## Tests
+
+Both gates run inside the project's own Docker images. Nothing has to be
+installed on the machine.
+
+```shell
+docker compose --profile test run --rm test
+```
+
+The suite runs on a small runner of the project itself — no framework and no
+third party library — and covers the filter builder and the CSV writer. Two
+of the tests are the regression tests of the SQL injection that the earlier
+version of this code had: they state that a value with a quote or with a
+statement terminator never reaches the SQL text, and that it is always a bound
+parameter.
+
+The suite needs neither a database nor a network.
+
+## CI/CD
+
+`.github/workflows/ci.yml` runs the same gates on every push and every pull
+request:
+
+| Step | Command | Gate |
+|---|---|---|
+| Validate the compose file | `docker compose config --quiet` | ✅ |
+| Build the test image | `docker compose build test` | ✅ |
+| Test suite | `docker compose --profile test run --rm test` | ✅ |
+| Build the application image | `docker compose build php` | ✅ |
+| Build the database image | `docker compose build mysql` | ✅ |
+
+The runner needs a Docker daemon and nothing else — no PHP toolchain is
+installed on it. The workflow reads the repository only, never prints a
+secret and never publishes anything, and `actions/checkout` is pinned to a
+commit hash so the tag cannot move under the pipeline.
+
+Two permanent branches exist: `master` (the released state) and `test` (the
+integration state). A change is delivered as a pull request from a
+`feature/*` branch into `test`, and from `test` into `master`.
+
+## Security notes
+
+- **Every query is prepared and every value is bound.** The earlier version
+  of this code put the values of the request and of the uploaded file into
+  the SQL text, which was an unauthenticated injection: a request for
+  `firstname=x%' OR 1=1 -- -` returned every row of the table instead of the
+  rows that match. The check is now a regression test of the suite.
+- **The output is escaped.** The rows of the page are written with
+  `htmlspecialchars`, and the JavaScript fills the cells with text nodes, so
+  a value of the database never becomes markup.
+- **The upload is checked by its content.** The type a browser sends is
+  chosen by the client, so the extension and the first line of the file
+  decide, not the header.
+- **The credentials are read from the environment**, so they are not part of
+  the source and not part of an image.
+- **A notice of PHP never reaches the body of a response.** The runtime image
+  writes the notices to the log of the container, so an export or a redirect
+  cannot be broken by one.
+
+## Known limitations
+
+- **The listing page needs a database.** The page renders the rows on the
+  server, so it cannot be served without one.
+- **The import writes one row at a time.** A file with a hundred thousand
+  rows takes a while; the rows are not written in one transaction.
+- **The data of the test is not in the repository.** `build/mysql/dump.sql`
+  creates the empty table only. `AUTO_INCREMENT=15776` in that file is a
+  leftover of the export the dump was taken from.
+- **The brief links a CSV on Google Drive.** That file is a third party
+  asset and is not part of the repository.
+- **No license file.**
