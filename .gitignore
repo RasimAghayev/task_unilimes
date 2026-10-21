@@ -1,0 +1,11 @@
+# Runtime state of the compose stack (R92). The local environment file, the
+# database data and the state of the containers live here.
+var/
+
+# Local environment files. `.env.example` is the tracked template.
+.env
+.env.*
+!.env.example
+
+*.log
+.DS_Store

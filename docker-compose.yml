@@ -1,23 +1,83 @@
-version: "3.9"
+name: "task-unilimes"
+
+# Every bind mount of the stack lives under var/ (R92): the local environment
+# file, the database state and the schema of the first start. The application
+# source is baked into the image, so no versioned directory is mounted into a
+# container. Named volumes are forbidden.
+#
+# Resource limits are required for every service (R60, R64, R102).
+x-resources-default: &resources-default
+  deploy:
+    resources:
+      limits:
+        cpus: "1.0"
+        memory: 512M
+        pids: 256
+      reservations:
+        cpus: "0.25"
+        memory: 128M
+
 services:
   php:
-    build: './build/php'
-    ports:
-      - "8000:80"
-    volumes:
-      - ./app:/var/www/html
-  mysql:
-    build: './build/mysql'
-    ports:
-      - "9306:3306"
+    build:
+      context: .
+      dockerfile: build/php/Dockerfile
+      target: runtime
+    container_name: task_unilimes_php
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+    env_file:
+      - var/.env
     environment:
-      MYSQL_ROOT_PASSWORD: secret
-      MYSQL_DATABASE: test
-      MYSQL_USER: user
-      MYSQL_PASSWORD: pass
+      DB_HOST: mysql
+      DB_USER: ${DB_USER:-user}
+      DB_PASSWORD: ${DB_PASSWORD:-pass}
+      DB_DATABASE: ${DB_DATABASE:-test}
+    ports:
+      - "${APP_PORT:-8000}:80"
+    <<: *resources-default
+    networks:
+      - task-unilimes
+
+  test:
+    build:
+      context: .
+      dockerfile: build/php/Dockerfile
+      target: test
+    profiles: ["test"]
+    # The suite needs neither a database nor the network, so the service
+    # depends on nothing and starts on its own. It reads no environment file,
+    # so the values of the local machine cannot change the result.
+    <<: *resources-default
+    networks:
+      - task-unilimes
+
+  mysql:
+    build:
+      context: .
+      dockerfile: build/mysql/Dockerfile
+    container_name: task_unilimes_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${DB_DATABASE:-test}
+      MYSQL_USER: ${DB_USER:-user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-pass}
     volumes:
-      - dbData:/var/lib/mysql
-      - ./build/mysql/dump.sql:/docker-entrypoint-initdb.d/dump.sql
-volumes:
-  app:
-  dbData:
+      - ./var/mysql:/var/lib/mysql
+      - ./build/mysql/dump.sql:/docker-entrypoint-initdb.d/dump.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    <<: *resources-default
+    networks:
+      - task-unilimes
+
+networks:
+  task-unilimes:
+    name: task-unilimes
